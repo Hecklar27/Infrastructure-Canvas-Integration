@@ -8,7 +8,12 @@ interface CanvasAssignmentProcessorSettings {
 	semester: string;
 	year: string;
 }
-
+declare global {
+	interface Window {
+		moment: any;
+	}
+  }
+  
 // Interface for Canvas assignment data
 interface CanvasAssignment {
 	id: number;
@@ -318,7 +323,7 @@ export default class CanvasAssignmentProcessor extends Plugin {
 				
 				const cleanedName = this.cleanAssignmentName(assignment.name);
 				const formattedDate = assignment.due_at 
-					? moment(assignment.due_at).format('YYYY-MM-DD')
+					? window.moment(assignment.due_at).format('YYYY-MM-DD')
 					: '';
 				
 				const formattedTitle = `${cleanedName} [Assignment] [-${courseCode}-] ${formattedDate}`;
