@@ -4,7 +4,6 @@ import * as moment from 'moment';
 interface CanvasAssignmentProcessorSettings {
 	canvasToken: string;
 	canvasApiBase: string;
-	templatePath: string;
 	semester: string;
 	year: string;
 }
@@ -12,7 +11,7 @@ declare global {
 	interface Window {
 		moment: any;
 	}
-  }
+}
   
 // Interface for Canvas assignment data
 interface CanvasAssignment {
@@ -40,7 +39,6 @@ interface CanvasCourse {
 const DEFAULT_SETTINGS: CanvasAssignmentProcessorSettings = {
 	canvasToken: '',
 	canvasApiBase: 'https://canvas.instructure.com/api/v1',
-	templatePath: 'Templates/Assignment.md',
 	semester: 'Spring',
 	year: '2025'
 }
@@ -215,7 +213,7 @@ export default class CanvasAssignmentProcessor extends Plugin {
 			);
 			
 			const formattedDate = newDueDate ? 
-				moment(newDueDate).format('MMMM Do YYYY') :
+				window.moment(newDueDate).format('MMMM Do YYYY') :
 				'No Due Date';
 				
 			updatedContent = updatedContent.replace(
@@ -295,16 +293,28 @@ export default class CanvasAssignmentProcessor extends Plugin {
 		return name;
 	}
 
-	async createAssignmentNotes(): Promise<void> {
-		// Check if the Templater plugin is available
-		// @ts-ignore - Accessing plugin that may not be typed
-		const templater = this.app.plugins.plugins["templater-obsidian"];
+	generateAssignmentTemplate(title: string, courseCode: string, dueDate: string): string {
+		// Extract information from title
+		const extractedCourse = courseCode;
+		const extractedDate = dueDate;
+		const formattedDate = dueDate ? window.moment(dueDate).format('MMMM Do YYYY') : "No Due Date";
+		const extractedName = this.cleanAssignmentName(title);
 		
-		if (!templater) {
-			new Notice("Templater plugin not found! Please install and enable it.");
-			return;
-		}
+		// Generate template content
+		return `---
+course: ${extractedCourse}
+duedate: ${extractedDate}
+name: ${extractedName}
+status: unassigned
+---
 
+Course: ${extractedCourse}
+Due Date: ${formattedDate}
+Name: ${extractedName}
+Status: unassigned`;
+	}
+
+	async createAssignmentNotes(): Promise<void> {
 		try {
 			new Notice(`Fetching Canvas assignments for ${this.settings.semester} ${this.settings.year}...`);
 			
@@ -353,26 +363,33 @@ export default class CanvasAssignmentProcessor extends Plugin {
 				
 				if (!existingFile) {
 					try {
-						const templateFile = this.app.vault.getAbstractFileByPath(this.settings.templatePath);
-						if (!templateFile) {
-							throw new Error(`Template file not found at ${this.settings.templatePath}!`);
-						}
-
-						const templateContent = await this.app.vault.read(templateFile as TFile);
-						let enrichedContent = templateContent + `\n\n## Assignment Details\n`;
-						enrichedContent += `Points: ${assignment.points_possible}\n`;
+						// Generate the template content
+						const templateContent = this.generateAssignmentTemplate(
+							formattedTitle, 
+							courseCode, 
+							formattedDate
+						);
+						
+						// Add assignment details to the template
+						let noteContent = templateContent + `\n\n## Assignment Details\n`;
+						noteContent += `Points: ${assignment.points_possible}\n`;
 						if (assignment.description) {
-							enrichedContent += `\n### Description\n${assignment.description}\n`;
+							noteContent += `\n### Description\n${assignment.description}\n`;
 						}
 						if (assignment.html_url) {
-							enrichedContent += `\n[View on Canvas](${assignment.html_url})\n`;
+							noteContent += `\n[View on Canvas](${assignment.html_url})\n`;
 						}
 
-						const file = await this.app.vault.create(newNotePath, enrichedContent);
-						await templater.templater.overwrite_file_commands(file);
+						// Create the file with the generated content
+						const file = await this.app.vault.create(newNotePath, noteContent);
+						
+						// Rename the file to just use the extracted name
+						const folder = file.parent;
+						const newPath = `${folder.path}/${cleanedName}.md`;
+						await this.app.fileManager.renameFile(file, newPath);
 						
 						createdCount++;
-						console.log(`Created note for assignment: ${formattedTitle}`);
+						console.log(`Created note for assignment: ${cleanedName}`);
 					} catch (err) {
 						console.error(`Error creating note for ${formattedTitle}:`, err);
 						continue;
@@ -459,17 +476,6 @@ class CanvasAssignmentProcessorSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.canvasApiBase)
 				.onChange(async (value) => {
 					this.plugin.settings.canvasApiBase = value;
-					await this.plugin.saveSettings();
-				}));
-		
-		new Setting(containerEl)
-			.setName('Assignment Template Path')
-			.setDesc('Path to the template file for assignments')
-			.addText(text => text
-				.setPlaceholder('Templates/Assignment.md')
-				.setValue(this.plugin.settings.templatePath)
-				.onChange(async (value) => {
-					this.plugin.settings.templatePath = value;
 					await this.plugin.saveSettings();
 				}));
 		
